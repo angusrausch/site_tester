@@ -6,6 +6,11 @@ import re
 import time
 from urllib.parse import urljoin, urlparse
 from statistics import mean
+from enum import Enum
+
+class RequestType(Enum):
+    GET = "get"
+    POST = "post"
 
 
 class AsyncApp:
@@ -19,6 +24,14 @@ class AsyncApp:
         self.times = []
         self.lock = asyncio.Lock()
         self.sites_visited = []
+        self.request_type = RequestType(args.type.lower())
+        self.request_func = self._get_request_func()
+
+    def _get_request_func(self):
+        if self.request_type == RequestType.GET:
+            return lambda client, url: client.get(url)
+        elif self.request_type == RequestType.POST:
+            return lambda client, url: client.post(url, data={})
 
     @staticmethod
     def _normalize_url(url):
@@ -39,12 +52,10 @@ class AsyncApp:
             return False, 0
 
     async def run(self):
-        ok, check_time = self.check_url()
+        ok, self.check_time = self.check_url()
         if not ok:
             print("Initial URL check failed.")
             return
-
-        print(f"Connected to {self.url} (initial check in {check_time:.2f}s)")
 
         # Calculate how many requests each worker should perform
         requests_per_worker = self.total_requests // self.concurrency
@@ -70,10 +81,10 @@ class AsyncApp:
             start = time.perf_counter()
             if url is None:
                 url = self.url
-            response = await client.get(url)
+            response = await self.request_func(client, url)
             duration = time.perf_counter() - start
 
-            if response.status_code != 200:
+            if response.status_code != 200 and self.request_type == "get":
                 print(f"[WARN] {url} returned {response.status_code} in {duration:.2f}s | adding to blacklist")
                 self.filters.append(urlparse(url).path)
                 return self.url
@@ -86,7 +97,7 @@ class AsyncApp:
             return self.url
 
         except Exception as e:
-            print(f"[ERROR] Failed request to {url} type {type(url)}: {e}")
+            print(f"[ERROR] Failed request to {url}: {e}")
             return self.url
 
     def pick_next_url(self, html):
@@ -106,6 +117,8 @@ class AsyncApp:
 
         avg = mean(self.times)
         max_time = max(self.times)
+        print(f"Connected to {self.url} (initial check in {self.check_time:.2f}s)")
+
         print(f"\nCompleted {len(self.times)} requests.")
         print(f"Average response time: {avg:.3f}s")
         print(f"Maximum response time: {max_time:.3f}s")
@@ -119,7 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--follow-links", action="store_true", help="Follow hyperlinks on the page")
     parser.add_argument("-n", "--number", type=int, default=100, help="Total number of requests to make")
     parser.add_argument("-p", "--processes", type=int, default=10, help="Number of concurrent workers")
-
+    parser.add_argument("--type", type=str, choices=["get", "post"], default="get",help="HTTP method to use: get or post")
     args = parser.parse_args()
     app = AsyncApp(args)
     asyncio.run(app.run())

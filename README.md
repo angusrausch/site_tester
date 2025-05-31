@@ -40,6 +40,7 @@ docker run site_test {args}
 | `-f`    | Follow local links on the site    |
 | `-n`    | Number of requests to perform     |
 | `-p`    | Number of concurrent workers      |
+| `--type`| Type of request ["get", "post"]   |
 
 ---
 
